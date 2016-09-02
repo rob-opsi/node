@@ -6,6 +6,7 @@
 #define V8_ISOLATE_H_
 
 #include <queue>
+#include <unordered_map>
 #include "include/v8-debug.h"
 #include "src/allocation.h"
 #include "src/assert-scope.h"
@@ -181,6 +182,10 @@ class ThreadId {
     return *this;
   }
 
+  bool operator==(const ThreadId& other) const {
+    return Equals(other);
+  }
+
   // Returns ThreadId for current thread.
   static ThreadId Current() { return ThreadId(GetCurrentThreadId()); }
 
@@ -221,6 +226,13 @@ class ThreadId {
   friend class Isolate;
 };
 
+template <class T> struct ThreadIdHasher;
+template<> struct ThreadIdHasher<ThreadId> {
+  std::size_t operator()(ThreadId const& t) const {
+    // passthrough to std::hash on the thread id int
+    return std::hash<int>()(t.ToInteger());
+  }
+};
 
 #define FIELD_ACCESSOR(type, name)                 \
   inline void set_##name(type v) { name##_ = v; }  \
@@ -1161,7 +1173,7 @@ class Isolate {
     void RemoveAllThreads(Isolate* isolate);
 
    private:
-    PerIsolateThreadData* list_;
+    std::unordered_map<ThreadId, PerIsolateThreadData*, ThreadIdHasher<ThreadId> > table_;
   };
 
   // These items form a stack synchronously with threads Enter'ing and Exit'ing

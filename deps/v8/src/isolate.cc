@@ -6,6 +6,7 @@
 
 #include <fstream>  // NOLINT(readability/streams)
 #include <sstream>
+#include <unordered_map>
 
 #include "src/v8.h"
 
@@ -1681,7 +1682,7 @@ char* Isolate::RestoreThread(char* from) {
 
 
 Isolate::ThreadDataTable::ThreadDataTable()
-    : list_(NULL) {
+    : table_() {
 }
 
 
@@ -1703,34 +1704,38 @@ Isolate::PerIsolateThreadData::~PerIsolateThreadData() {
 Isolate::PerIsolateThreadData*
     Isolate::ThreadDataTable::Lookup(Isolate* isolate,
                                      ThreadId thread_id) {
-  for (PerIsolateThreadData* data = list_; data != NULL; data = data->next_) {
-    if (data->Matches(isolate, thread_id)) return data;
-  }
+  // We assume thread_ids are unique per-process, not just per-isolate.
+  // I hope this winds up being true.
+  auto t = table_.find(thread_id);
+  if (t == table_.end()) return NULL;
+  auto data = t->second;
+  if (data->Matches(isolate, thread_id)) return data;
   return NULL;
 }
 
 
 void Isolate::ThreadDataTable::Insert(Isolate::PerIsolateThreadData* data) {
-  if (list_ != NULL) list_->prev_ = data;
-  data->next_ = list_;
-  list_ = data;
+  table_[data->thread_id_] = data;
 }
 
 
 void Isolate::ThreadDataTable::Remove(PerIsolateThreadData* data) {
-  if (list_ == data) list_ = data->next_;
-  if (data->next_ != NULL) data->next_->prev_ = data->prev_;
-  if (data->prev_ != NULL) data->prev_->next_ = data->next_;
+  table_.erase(data->thread_id_);
   delete data;
 }
 
 
 void Isolate::ThreadDataTable::RemoveAllThreads(Isolate* isolate) {
-  PerIsolateThreadData* data = list_;
-  while (data != NULL) {
-    PerIsolateThreadData* next = data->next_;
-    if (data->isolate() == isolate) Remove(data);
-    data = next;
+  std::vector<PerIsolateThreadData*> values_to_remove;
+  for (auto& x: table_) {
+    PerIsolateThreadData* value = x.second;
+    if (value->isolate_ == isolate) {
+      values_to_remove.push_back(value);
+    }
+  }
+
+  for (auto& value: values_to_remove) {
+    Remove(value);
   }
 }
 
